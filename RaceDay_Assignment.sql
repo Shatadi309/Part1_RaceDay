@@ -1,4 +1,4 @@
---creating a database called RaceDay--
+--creating a database that is called RaceDay--
 create  database RaceDay;
 
 --using the database--
