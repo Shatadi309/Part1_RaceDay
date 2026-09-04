@@ -123,3 +123,4 @@ Create event table
 Create category table
 Create eventCategory table
 Create enrolment table
+Create result table
