@@ -134,3 +134,4 @@ Add users SELECT statement
 Add event SELECT statement
 Add eventCategory SELECT statement
 Add category SELECT statement
+Add enrolment SELECT statement
