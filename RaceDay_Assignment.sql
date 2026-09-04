@@ -117,3 +117,4 @@ select * from eventCategory;
 select * from category;
 select * from enrolment;
 select * from result;
+Create RaceDay database
