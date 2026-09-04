@@ -131,3 +131,4 @@ Add eventCategory records
 Add enrolment records
 Add result records
 Add users SELECT statement
+Add event SELECT statement
