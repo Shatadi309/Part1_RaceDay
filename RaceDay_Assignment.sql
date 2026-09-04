@@ -122,3 +122,4 @@ Create users table
 Create event table
 Create category table
 Create eventCategory table
+Create enrolment table
