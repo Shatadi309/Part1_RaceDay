@@ -135,4 +135,5 @@ Add event SELECT statement
 Add eventCategory SELECT statement
 Add category SELECT statement
 Add enrolment SELECT statement
- Add result SELECT statement
+Add result SELECT statement
+Complete RaceDay database script
