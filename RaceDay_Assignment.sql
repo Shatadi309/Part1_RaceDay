@@ -119,3 +119,4 @@ select * from enrolment;
 select * from result;
 Create RaceDay database
 Create users table
+Create event table
