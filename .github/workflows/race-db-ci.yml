@@ -1,4 +1,4 @@
-name: RaceDay Database CI
+name: RaceDay Database CI (SQLite)
 
 on:
   push:
@@ -7,103 +7,77 @@ on:
     branches: [ main, master ]
 
 jobs:
-  validate-sql:
+  validate-sql-sqlite:
     runs-on: ubuntu-latest
-    
-    services:
-      sqlserver:
-        image: mcr.microsoft.com/mssql/server:2022-latest
-        env:
-          ACCEPT_EULA: Y
-          SA_PASSWORD: YourStrong!Passw0rd
-          MSSQL_PID: Express
-        ports:
-          - 1433:1433
-        options: >-
-          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -Q 'SELECT 1'"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
     
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
     
-    - name: Install sqlcmd
-      run: |
-        curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
-        curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/msprod.list
-        sudo apt-get update
-        sudo apt-get install -y mssql-tools unixodbc-dev
-        echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
+    - name: Install SQLite
+      run: sudo apt-get update && sudo apt-get install -y sqlite3
     
-    - name: Wait for SQL Server to be ready
+    - name: Convert SQL Server to SQLite
       run: |
-        echo "Waiting for SQL Server to start..."
-        for i in {1..30}; do
-          if /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -Q "SELECT 1" &> /dev/null; then
-            echo "SQL Server is ready!"
-            break
-          fi
-          echo "Attempt $i - SQL Server not ready yet..."
-          sleep 5
-        done
+        # Create a SQLite compatible version
+        sed -e 's/identity(1,1)/AUTOINCREMENT/g' \
+            -e 's/primary key identity(1,1)/PRIMARY KEY AUTOINCREMENT/g' \
+            -e 's/varchar(MAX)/TEXT/g' \
+            -e 's/varchar(150)/TEXT/g' \
+            -e 's/varchar(255)/TEXT/g' \
+            -e 's/varchar(50)/TEXT/g' \
+            -e 's/varchar(100)/TEXT/g' \
+            -e 's/nvarchar(10)/TEXT/g' \
+            -e 's/nvarchar(150)/TEXT/g' \
+            -e 's/nvarchar(50)/TEXT/g' \
+            -e 's/char(10)/TEXT/g' \
+            -e 's/date/TEXT/g' \
+            -e 's/time/TEXT/g' \
+            -e 's/decimal(10,2)/REAL/g' \
+            -e 's/drop database RaceDay;/-- drop database RaceDay;--/g' \
+            ${{ github.workspace }}/--creating\ a\ database\ called\ RaceDay--.txt > RaceDay.sqlite.sql
     
-    - name: Execute SQL script
+    - name: Create SQLite database
       run: |
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -i ${{ github.workspace }}/--creating\ a\ database\ called\ RaceDay--.txt -o output.log
-        cat output.log
+        sqlite3 RaceDay.db < RaceDay.sqlite.sql
     
-    - name: Verify database creation
+    - name: Verify database
       run: |
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -Q "SELECT name FROM sys.databases WHERE name = 'RaceDay'" -o verify.log
-        if grep -q "RaceDay" verify.log; then
-          echo "✅ Database 'RaceDay' created successfully!"
-        else
-          echo "❌ Database 'RaceDay' not found!"
-          exit 1
-        fi
-    
-    - name: Verify tables exist
-      run: |
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'" -o tables.log
-        cat tables.log
-    
-    - name: Verify data was inserted
-      run: |
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT COUNT(*) as UserCount FROM users" -o users_count.log
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT COUNT(*) as EventCount FROM event" -o events_count.log
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT COUNT(*) as EnrolmentCount FROM enrolment" -o enrolment_count.log
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT COUNT(*) as ResultCount FROM result" -o results_count.log
+        echo "--- Tables ---"
+        sqlite3 RaceDay.db ".tables"
         
-        echo "--- Data Verification ---"
-        echo "Users: $(cat users_count.log | grep -E '[0-9]+$') records"
-        echo "Events: $(cat events_count.log | grep -E '[0-9]+$') records"
-        echo "Enrolments: $(cat enrolment_count.log | grep -E '[0-9]+$') records"
-        echo "Results: $(cat results_count.log | grep -E '[0-9]+$') records"
-    
-    - name: Run additional validation queries
-      run: |
-        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "
-        -- Check foreign key relationships
-        SELECT 
-          OBJECT_NAME(fk.parent_object_id) as TableName,
-          OBJECT_NAME(fk.referenced_object_id) as ReferencedTable
-        FROM sys.foreign_keys fk
+        echo -e "\n--- Schema ---"
+        sqlite3 RaceDay.db ".schema"
         
-        -- Show sample data
-        SELECT 'Users' as TableName, fullName, email FROM users
-        SELECT 'Events' as TableName, eventName, eventDate, location FROM event
-        SELECT 'Categories' as TableName, categoryName FROM category
-        SELECT 'Results' as TableName, position, finishTime FROM result
-        " -o validation.log
-        cat validation.log
-
-    - name: Upload SQL logs
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: sql-logs
-        path: |
-          *.log
-          output.log
+        echo -e "\n--- Data Counts ---"
+        sqlite3 RaceDay.db "SELECT 'Users: ' || COUNT(*) FROM users"
+        sqlite3 RaceDay.db "SELECT 'Events: ' || COUNT(*) FROM event"
+        sqlite3 RaceDay.db "SELECT 'Categories: ' || COUNT(*) FROM category"
+        sqlite3 RaceDay.db "SELECT 'Enrolments: ' || COUNT(*) FROM enrolment"
+        sqlite3 RaceDay.db "SELECT 'Results: ' || COUNT(*) FROM result"
+        
+        echo -e "\n--- Sample Data ---"
+        sqlite3 RaceDay.db "SELECT * FROM users LIMIT 5"
+        sqlite3 RaceDay.db "SELECT * FROM event LIMIT 5"
+        sqlite3 RaceDay.db "SELECT * FROM category LIMIT 5"
+    
+    - name: Run validation queries
+      run: |
+        sqlite3 RaceDay.db "
+        -- Check for any errors
+        SELECT 'Database validation completed successfully';
+        
+        -- Show event categories
+        SELECT e.eventName, c.categoryName 
+        FROM event e 
+        JOIN eventCategory ec ON e.eventID = ec.eventID 
+        JOIN category c ON ec.categoryID = c.categoryID;
+        
+        -- Show enrolments with user and event info
+        SELECT u.fullName, e.eventName, en.enrolmentDate, en.paymentStatus 
+        FROM enrolment en
+        JOIN users u ON en.userID = u.userID
+        JOIN eventCategory ec ON en.eventCategoryID = ec.eventCategoryID
+        JOIN event e ON ec.eventID = e.eventID
+        LIMIT 5;
+        "
