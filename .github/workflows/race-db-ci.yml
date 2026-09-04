@@ -1,0 +1,109 @@
+name: RaceDay Database CI
+
+on:
+  push:
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  validate-sql:
+    runs-on: ubuntu-latest
+    
+    services:
+      sqlserver:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: Y
+          SA_PASSWORD: YourStrong!Passw0rd
+          MSSQL_PID: Express
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd="/opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -Q 'SELECT 1'"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    
+    - name: Install sqlcmd
+      run: |
+        curl https://packages.microsoft.com/keys/microsoft.asc | sudo apt-key add -
+        curl https://packages.microsoft.com/config/ubuntu/20.04/prod.list | sudo tee /etc/apt/sources.list.d/msprod.list
+        sudo apt-get update
+        sudo apt-get install -y mssql-tools unixodbc-dev
+        echo 'export PATH="$PATH:/opt/mssql-tools/bin"' >> ~/.bashrc
+    
+    - name: Wait for SQL Server to be ready
+      run: |
+        echo "Waiting for SQL Server to start..."
+        for i in {1..30}; do
+          if /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -Q "SELECT 1" &> /dev/null; then
+            echo "SQL Server is ready!"
+            break
+          fi
+          echo "Attempt $i - SQL Server not ready yet..."
+          sleep 5
+        done
+    
+    - name: Execute SQL script
+      run: |
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -i ${{ github.workspace }}/--creating\ a\ database\ called\ RaceDay--.txt -o output.log
+        cat output.log
+    
+    - name: Verify database creation
+      run: |
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -Q "SELECT name FROM sys.databases WHERE name = 'RaceDay'" -o verify.log
+        if grep -q "RaceDay" verify.log; then
+          echo "✅ Database 'RaceDay' created successfully!"
+        else
+          echo "❌ Database 'RaceDay' not found!"
+          exit 1
+        fi
+    
+    - name: Verify tables exist
+      run: |
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'" -o tables.log
+        cat tables.log
+    
+    - name: Verify data was inserted
+      run: |
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT COUNT(*) as UserCount FROM users" -o users_count.log
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT COUNT(*) as EventCount FROM event" -o events_count.log
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT COUNT(*) as EnrolmentCount FROM enrolment" -o enrolment_count.log
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "SELECT COUNT(*) as ResultCount FROM result" -o results_count.log
+        
+        echo "--- Data Verification ---"
+        echo "Users: $(cat users_count.log | grep -E '[0-9]+$') records"
+        echo "Events: $(cat events_count.log | grep -E '[0-9]+$') records"
+        echo "Enrolments: $(cat enrolment_count.log | grep -E '[0-9]+$') records"
+        echo "Results: $(cat results_count.log | grep -E '[0-9]+$') records"
+    
+    - name: Run additional validation queries
+      run: |
+        /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P 'YourStrong!Passw0rd' -d RaceDay -Q "
+        -- Check foreign key relationships
+        SELECT 
+          OBJECT_NAME(fk.parent_object_id) as TableName,
+          OBJECT_NAME(fk.referenced_object_id) as ReferencedTable
+        FROM sys.foreign_keys fk
+        
+        -- Show sample data
+        SELECT 'Users' as TableName, fullName, email FROM users
+        SELECT 'Events' as TableName, eventName, eventDate, location FROM event
+        SELECT 'Categories' as TableName, categoryName FROM category
+        SELECT 'Results' as TableName, position, finishTime FROM result
+        " -o validation.log
+        cat validation.log
+
+    - name: Upload SQL logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sql-logs
+        path: |
+          *.log
+          output.log
