@@ -137,3 +137,4 @@ Add category SELECT statement
 Add enrolment SELECT statement
 Add result SELECT statement
 Complete RaceDay database script
+Making a video presentation for the sql script
