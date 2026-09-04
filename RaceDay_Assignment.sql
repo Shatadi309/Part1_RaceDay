@@ -129,3 +129,4 @@ Add event records
 Add category records
 Add eventCategory records
 Add enrolment records
+Add result records
