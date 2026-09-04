@@ -130,3 +130,4 @@ Add category records
 Add eventCategory records
 Add enrolment records
 Add result records
+Add users SELECT statement
