@@ -118,3 +118,4 @@ select * from category;
 select * from enrolment;
 select * from result;
 Create RaceDay database
+Create users table
